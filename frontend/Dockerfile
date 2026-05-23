@@ -38,9 +38,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 USER nextjs
 
 # Render (and every other cloud) sets $PORT at runtime.
-# Next.js standalone server.js already reads process.env.PORT,
-# but we pass it explicitly so there is zero ambiguity.
 ENV PORT=3000
+# Docker sets HOSTNAME to the container ID; Next.js passes that to server.listen(),
+# which binds only to the container's bridge IP rather than 0.0.0.0. Render's reverse
+# proxy can't reach a bridge-only binding, causing 502 on every request.
+ENV HOSTNAME=0.0.0.0
 EXPOSE 3000
 
-CMD ["sh", "-c", "node server.js"]
+# Exec form (no shell wrapper): SIGTERM goes directly to node, not sh.
+CMD ["node", "server.js"]

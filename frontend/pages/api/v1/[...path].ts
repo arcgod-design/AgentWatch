@@ -12,29 +12,26 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 const API_BASE =
   (process.env.AGENTWATCH_API_URL ?? 'http://localhost:8000').replace(/\/$/, '')
 
-export const config = {
-  api: {
-    externalResolver: true,
-  },
-}
-
+// No externalResolver: true — keeping Next.js's default error safety net so
+// that any uncaught exception in this handler results in a 500 response rather
+// than a silent connection close that Render's proxy reports as 502.
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const segments = Array.isArray(req.query.path)
-    ? req.query.path
-    : [req.query.path ?? '']
-  const path = segments.join('/')
-
-  // Forward query params (except the internal Next.js `path` param)
-  const { path: _drop, ...rest } = req.query
-  const qs = new URLSearchParams(
-    Object.entries(rest).flatMap(([k, v]) =>
-      Array.isArray(v) ? v.map((val) => [k, val]) : [[k, String(v)]]
-    ),
-  ).toString()
-
-  const upstream = `${API_BASE}/api/v1/${path}${qs ? `?${qs}` : ''}`
-
   try {
+    const segments = Array.isArray(req.query.path)
+      ? req.query.path
+      : [req.query.path ?? '']
+    const path = segments.join('/')
+
+    // Forward query params (except the internal Next.js `path` param)
+    const { path: _drop, ...rest } = req.query
+    const qs = new URLSearchParams(
+      Object.entries(rest).flatMap(([k, v]) =>
+        Array.isArray(v) ? v.map((val) => [k, val]) : [[k, String(v)]]
+      ),
+    ).toString()
+
+    const upstream = `${API_BASE}/api/v1/${path}${qs ? `?${qs}` : ''}`
+
     const isReadMethod = req.method === 'GET' || req.method === 'HEAD'
     const requestBody: string | undefined = isReadMethod
       ? undefined
@@ -64,7 +61,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.send(payload)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.error(`[proxy] ${req.method} ${upstream} →`, message)
+    const upstream = `${API_BASE}/api/v1/...`
+    console.error(`[proxy] ${req.method} ${req.url} →`, message)
     res.status(502).json({
       error: 'upstream_unavailable',
       upstream,
