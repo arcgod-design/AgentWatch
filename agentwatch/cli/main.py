@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 import platform
 import sys
+import time
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
@@ -67,9 +67,10 @@ def main_callback(
     global _IN_REPL
 
     if version:
-        from agentwatch import __version__
-        import sys
         import platform
+        import sys
+
+        from agentwatch import __version__
 
         console.print(f"AgentWatch CLI version: {__version__}")
         console.print(f"Python: {sys.version.split()[0]}")
@@ -1876,7 +1877,6 @@ def version() -> None:
     table.add_row("Executable", sys.executable)
 
     try:
-        import importlib.metadata
 
         table.add_row("Package Location", str(Path(__file__).resolve().parent.parent.parent))
     except Exception:
