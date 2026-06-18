@@ -33,29 +33,33 @@ class ComplianceReport:
     def to_csv(self) -> str:
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow([
-            "audit_id",
-            "timestamp",
-            "principal_id",
-            "event_type",
-            "resource",
-            "action",
-            "allowed",
-            "session_id",
-            "details",
-        ])
+        writer.writerow(
+            [
+                "audit_id",
+                "timestamp",
+                "principal_id",
+                "event_type",
+                "resource",
+                "action",
+                "allowed",
+                "session_id",
+                "details",
+            ]
+        )
         for entry in self.findings.get("sample_denials", []):
-            writer.writerow([
-                entry.get("audit_id", ""),
-                entry.get("timestamp", ""),
-                entry.get("principal_id", ""),
-                entry.get("event_type", ""),
-                entry.get("resource", ""),
-                entry.get("action", ""),
-                entry.get("allowed", ""),
-                entry.get("session_id", ""),
-                entry.get("details", ""),
-            ])
+            writer.writerow(
+                [
+                    entry.get("audit_id", ""),
+                    entry.get("timestamp", ""),
+                    entry.get("principal_id", ""),
+                    entry.get("event_type", ""),
+                    entry.get("resource", ""),
+                    entry.get("action", ""),
+                    entry.get("allowed", ""),
+                    entry.get("session_id", ""),
+                    entry.get("details", ""),
+                ]
+            )
         return buf.getvalue()
 
 
@@ -94,27 +98,31 @@ class ComplianceReporter:
 
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow([
-            "audit_id",
-            "timestamp",
-            "principal_id",
-            "event_type",
-            "resource",
-            "action",
-            "allowed",
-            "session_id",
-            "details",
-        ])
+        writer.writerow(
+            [
+                "audit_id",
+                "timestamp",
+                "principal_id",
+                "event_type",
+                "resource",
+                "action",
+                "allowed",
+                "session_id",
+                "details",
+            ]
+        )
         for entry in audit_log:
-            writer.writerow([
-                entry.audit_id,
-                entry.timestamp.isoformat(),
-                entry.principal_id or "",
-                entry.event_type.value,
-                entry.resource,
-                entry.action,
-                entry.allowed,
-                entry.session_id or "",
-                entry.details,
-            ])
+            writer.writerow(
+                [
+                    entry.audit_id,
+                    entry.timestamp.isoformat(),
+                    entry.principal_id or "",
+                    entry.event_type.value,
+                    entry.resource,
+                    entry.action,
+                    entry.allowed,
+                    entry.session_id or "",
+                    entry.details,
+                ]
+            )
         return buf.getvalue()

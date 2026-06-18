@@ -883,7 +883,9 @@ def top(
         def generate_dashboard(data, error_msg=None):
             if error_msg:
                 return Panel(
-                    f"[red]{error_msg}[/red]", title="AgentWatch Top Error", border_style="red"
+                    f"[red]{error_msg}[/red]",
+                    title="AgentWatch Top Error",
+                    border_style="red",
                 )
 
             table = Table(show_header=True, header_style="bold magenta", expand=True)
@@ -911,7 +913,9 @@ def top(
                 )
 
             return Panel(
-                table, title="[cyan]AgentWatch Top - Active Agent Loops[/cyan]", border_style="cyan"
+                table,
+                title="[cyan]AgentWatch Top - Active Agent Loops[/cyan]",
+                border_style="cyan",
             )
 
         async def poll_loop(live_display: Any) -> None:
@@ -932,7 +936,8 @@ def top(
                     await asyncio.sleep(refresh_rate)
 
         with Live(
-            generate_dashboard({"top_sessions": []}), refresh_per_second=1.0 / refresh_rate
+            generate_dashboard({"top_sessions": []}),
+            refresh_per_second=1.0 / refresh_rate,
         ) as live:
             await poll_loop(live)
 
@@ -1858,7 +1863,9 @@ def compliance_export_csv(
         Path("compliance-audit.csv"), "--output", "-o", help="Output CSV file path"
     ),
     include_allowed: bool = typer.Option(
-        False, "--include-allowed", help="Include allowed actions (denials only by default)"
+        False,
+        "--include-allowed",
+        help="Include allowed actions (denials only by default)",
     ),
     api_url: str = typer.Option("http://localhost:8000", "--api"),
     api_key: str | None = API_KEY_OPTION,
@@ -1903,7 +1910,9 @@ def compliance_export_local(
         Path("compliance-audit.csv"), "--output", "-o", help="Output CSV file path"
     ),
     include_allowed: bool = typer.Option(
-        False, "--include-allowed", help="Include allowed actions (denials only by default)"
+        False,
+        "--include-allowed",
+        help="Include allowed actions (denials only by default)",
     ),
 ) -> None:
     """Export compliance audit log from a local GovernanceEngine as CSV."""
