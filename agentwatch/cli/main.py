@@ -130,9 +130,9 @@ def _start_repl_session():
                 break
 
             if cmd_lower in ("clear", "cls"):
-                os.system(
+                os.system(  # noqa: S605, S607
                     "cls" if os.name == "nt" else "clear"
-                )  # nosec # noqa: S605, S607
+                )  # nosec
                 continue
 
             args = shlex.split(cmd_line)
