@@ -21,12 +21,10 @@ import json
 import sys
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
-from agentwatch.core.schema import AgentEvent, EventType, RiskLevel, ToolCallData
+from agentwatch.core.schema import AgentEvent, EventType, ToolCallData
 from agentwatch.security.owasp import OwaspScanner, OwaspVector
 from agentwatch.security.redteam import RedTeamHarness
-
 
 # ── Synthetic attack events for OWASP scanner ──────────────────────
 

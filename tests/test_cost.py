@@ -203,6 +203,7 @@ def test_budget_governance_requires_human_above_auto_approve():
 # CST-008 — Stale session eviction (Issue #137)
 # ─────────────────────────────────────────────
 
+
 def test_tracker_expired_session_evicted():
     tracker = CostTracker(ttl_seconds=60.0)
     tracker.configure_session("session-expired")
