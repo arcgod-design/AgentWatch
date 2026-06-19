@@ -166,7 +166,11 @@ def detect_framework(agent: Any) -> AgentFramework:
         return AgentFramework.CUSTOM
     if "autogpt" in blob:
         return AgentFramework.AUTOGPT
-    if "smolagents" in blob or "codeagent" in cls_name or "toolcallingagent" in cls_name:
+    if (
+        "smolagents" in blob
+        or "codeagent" in cls_name
+        or "toolcallingagent" in cls_name
+    ):
         return AgentFramework.CUSTOM
     if "openai" in blob and ("agent" in cls_name or "runner" in cls_name):
         return AgentFramework.OPENAI_AGENTS
@@ -240,7 +244,7 @@ class GenericAdapter:
         self._step = 0
         self._wrapped_methods: dict[str, Any] = {}
         self._safety_engine = safety_engine or SafetyEngine()
-        self._session_metadata: dict[str, Any] = metadata or {}
+        self._session_metadata: dict[str, Any] = dict(metadata) if metadata else {}
 
     def attach(self) -> Any:
         """
@@ -307,7 +311,7 @@ class GenericAdapter:
                         event_type=EventType.TOOL_CALL,
                         step_number=self._step,
                         tool_call=tool_call,
-                        metadata=self._session_metadata,
+                        metadata=dict(self._session_metadata),
                     )
                     try:
                         checked = await self._safety_engine.check_event(safety_event)
@@ -317,7 +321,9 @@ class GenericAdapter:
                         await self.bus.publish(checked)
                         if checked.is_blocked:
                             reasons = checked.safety.reasons if checked.safety else []
-                            reason_str = "; ".join(reasons) if reasons else "safety policy"
+                            reason_str = (
+                                "; ".join(reasons) if reasons else "safety policy"
+                            )
                             raise AgentWatchBlockedError(
                                 f"Tool call '{method_name}' blocked by safety engine: {reason_str}",
                                 tool_name=method_name,
@@ -365,7 +371,9 @@ class GenericAdapter:
             if is_tool_like:
                 tool_call = _build_tool_call_data(method_name, args, kwargs)
                 try:
-                    blocked, reasons = self._safety_engine.check_tool_call_sync(tool_call)
+                    blocked, reasons = self._safety_engine.check_tool_call_sync(
+                        tool_call
+                    )
                     # Build and publish a TOOL_CALL event with safety data so the
                     # dashboard shows the correct blocked/safe state.
                     tc_event = AgentEvent(
@@ -376,14 +384,20 @@ class GenericAdapter:
                         event_type=EventType.TOOL_CALL,
                         step_number=self._step,
                         tool_call=tool_call,
-                        status=ExecutionStatus.BLOCKED if blocked else ExecutionStatus.RUNNING,
+                        status=(
+                            ExecutionStatus.BLOCKED
+                            if blocked
+                            else ExecutionStatus.RUNNING
+                        ),
                         safety=SafetyCheckData(
-                            risk_level=RiskLevel.CRITICAL if blocked else RiskLevel.SAFE,
+                            risk_level=(
+                                RiskLevel.CRITICAL if blocked else RiskLevel.SAFE
+                            ),
                             risk_score=1.0 if blocked else 0.0,
                             blocked=blocked,
                             reasons=reasons,
                         ),
-                        metadata=self._session_metadata,
+                        metadata=dict(self._session_metadata),
                     )
                     self.bus.publish_sync(tc_event)
                     if blocked:
@@ -480,12 +494,19 @@ class GenericAdapter:
 # ─────────────────────────────────────────────
 
 
-def _attach_langchain(agent: Any, session_id: str | None, bus: EventBus) -> Any:
+def _attach_langchain(
+    agent: Any,
+    session_id: str | None,
+    bus: EventBus,
+    metadata: dict[str, Any] | None = None,
+) -> Any:
     """Attach an AgentWatchCallbackHandler if the agent supports callbacks."""
     try:
         from agentwatch.adapters.langchain import AgentWatchCallbackHandler
 
         handler = AgentWatchCallbackHandler(session_id=session_id, event_bus=bus)
+        if metadata:
+            handler._session_metadata = dict(metadata)
         # Newer LangChain: set on `.callbacks`
         if hasattr(agent, "callbacks"):
             existing = getattr(agent, "callbacks", None) or []
@@ -511,34 +532,58 @@ def _attach_langchain(agent: Any, session_id: str | None, bus: EventBus) -> Any:
         return None
 
 
-def _attach_langgraph(agent: Any, session_id: str | None, bus: EventBus) -> Any:
+def _attach_langgraph(
+    agent: Any,
+    session_id: str | None,
+    bus: EventBus,
+    metadata: dict[str, Any] | None = None,
+) -> Any:
     """LangGraph CompiledGraph exposes `invoke`/`astream` — wrap them generically.
     Also try to install a LangChain callback handler since LangGraph reuses it.
     """
     try:
         from agentwatch.adapters.langgraph import LangGraphAdapter
 
-        return LangGraphAdapter(agent, event_bus=bus, session_id=session_id).attach()
+        adapter = LangGraphAdapter(agent, event_bus=bus, session_id=session_id)
+        if metadata:
+            adapter._session_metadata = dict(metadata)
+        return adapter.attach()
     except Exception as exc:  # noqa: BLE001
         logger.debug("LangGraph attach failed: %s", exc)
         return None
 
 
-def _attach_autogen(agent: Any, session_id: str | None, bus: EventBus) -> Any:
+def _attach_autogen(
+    agent: Any,
+    session_id: str | None,
+    bus: EventBus,
+    metadata: dict[str, Any] | None = None,
+) -> Any:
     try:
         from agentwatch.adapters.autogen import AutoGenAdapter
 
-        return AutoGenAdapter(agent, event_bus=bus, session_id=session_id).attach()
+        adapter = AutoGenAdapter(agent, event_bus=bus, session_id=session_id)
+        if metadata:
+            adapter._session_metadata = dict(metadata)
+        return adapter.attach()
     except Exception as exc:  # noqa: BLE001
         logger.debug("AutoGen attach failed: %s", exc)
         return None
 
 
-def _attach_smolagents(agent: Any, session_id: str | None, bus: EventBus) -> Any:
+def _attach_smolagents(
+    agent: Any,
+    session_id: str | None,
+    bus: EventBus,
+    metadata: dict[str, Any] | None = None,
+) -> Any:
     try:
         from agentwatch.adapters.smolagents import SmolagentsAdapter
 
-        return SmolagentsAdapter(agent, event_bus=bus, session_id=session_id).attach()
+        adapter = SmolagentsAdapter(agent, event_bus=bus, session_id=session_id)
+        if metadata:
+            adapter._session_metadata = dict(metadata)
+        return adapter.attach()
     except Exception as exc:  # noqa: BLE001
         logger.debug("Smolagents attach failed: %s", exc)
         return None
@@ -581,19 +626,19 @@ def watch(
 
     try:
         if label == "langchain":
-            attached = _attach_langchain(agent, session_id, bus)
+            attached = _attach_langchain(agent, session_id, bus, metadata)
             if attached is not None:
                 return attached
         elif label == "langgraph":
-            attached = _attach_langgraph(agent, session_id, bus)
+            attached = _attach_langgraph(agent, session_id, bus, metadata)
             if attached is not None:
                 return attached
         elif label == "autogen":
-            attached = _attach_autogen(agent, session_id, bus)
+            attached = _attach_autogen(agent, session_id, bus, metadata)
             if attached is not None:
                 return attached
         elif label == "smolagents":
-            attached = _attach_smolagents(agent, session_id, bus)
+            attached = _attach_smolagents(agent, session_id, bus, metadata)
             if attached is not None:
                 return attached
 
