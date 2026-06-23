@@ -166,11 +166,7 @@ def detect_framework(agent: Any) -> AgentFramework:
         return AgentFramework.CUSTOM
     if "autogpt" in blob:
         return AgentFramework.AUTOGPT
-    if (
-        "smolagents" in blob
-        or "codeagent" in cls_name
-        or "toolcallingagent" in cls_name
-    ):
+    if "smolagents" in blob or "codeagent" in cls_name or "toolcallingagent" in cls_name:
         return AgentFramework.CUSTOM
     if "openai" in blob and ("agent" in cls_name or "runner" in cls_name):
         return AgentFramework.OPENAI_AGENTS
@@ -321,9 +317,7 @@ class GenericAdapter:
                         await self.bus.publish(checked)
                         if checked.is_blocked:
                             reasons = checked.safety.reasons if checked.safety else []
-                            reason_str = (
-                                "; ".join(reasons) if reasons else "safety policy"
-                            )
+                            reason_str = "; ".join(reasons) if reasons else "safety policy"
                             raise AgentWatchBlockedError(
                                 f"Tool call '{method_name}' blocked by safety engine: {reason_str}",
                                 tool_name=method_name,
@@ -371,9 +365,7 @@ class GenericAdapter:
             if is_tool_like:
                 tool_call = _build_tool_call_data(method_name, args, kwargs)
                 try:
-                    blocked, reasons = self._safety_engine.check_tool_call_sync(
-                        tool_call
-                    )
+                    blocked, reasons = self._safety_engine.check_tool_call_sync(tool_call)
                     # Build and publish a TOOL_CALL event with safety data so the
                     # dashboard shows the correct blocked/safe state.
                     tc_event = AgentEvent(
@@ -384,15 +376,9 @@ class GenericAdapter:
                         event_type=EventType.TOOL_CALL,
                         step_number=self._step,
                         tool_call=tool_call,
-                        status=(
-                            ExecutionStatus.BLOCKED
-                            if blocked
-                            else ExecutionStatus.RUNNING
-                        ),
+                        status=(ExecutionStatus.BLOCKED if blocked else ExecutionStatus.RUNNING),
                         safety=SafetyCheckData(
-                            risk_level=(
-                                RiskLevel.CRITICAL if blocked else RiskLevel.SAFE
-                            ),
+                            risk_level=(RiskLevel.CRITICAL if blocked else RiskLevel.SAFE),
                             risk_score=1.0 if blocked else 0.0,
                             blocked=blocked,
                             reasons=reasons,
