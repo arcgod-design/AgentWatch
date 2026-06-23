@@ -39,6 +39,7 @@ class SessionRecord(Base):
     __tablename__ = "agent_sessions"
 
     session_id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), index=True, nullable=True)  # Cloud multi-tenancy
     agent_id = Column(String(128), nullable=False, index=True)
     agent_name = Column(String(256))
     framework = Column(String(64), nullable=False, index=True)
@@ -58,6 +59,7 @@ class SessionRecord(Base):
     __table_args__ = (
         Index("ix_sessions_started_at", "started_at"),
         Index("ix_sessions_framework_status", "framework", "status"),
+        Index("ix_sessions_tenant_id", "tenant_id"),
     )
 
 
@@ -65,6 +67,7 @@ class EventRecord(Base):
     __tablename__ = "agent_events"
 
     event_id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), index=True, nullable=True)  # Cloud multi-tenancy
     session_id = Column(
         String(36), ForeignKey("agent_sessions.session_id", ondelete="CASCADE"), index=True
     )
@@ -142,6 +145,7 @@ class MemoryEntryRecord(Base):
     __tablename__ = "memory_entries"
 
     entry_id = Column(String(36), primary_key=True)
+    tenant_id = Column(String(36), index=True, nullable=True)  # Cloud multi-tenancy
     agent_id = Column(String(128), nullable=False, index=True)
     memory_type = Column(String(32), nullable=False, index=True)
     content = Column(Text, nullable=False)
