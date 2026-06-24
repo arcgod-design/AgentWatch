@@ -130,5 +130,8 @@ def verify_environment() -> None:
 
     from agentwatch.cli.animator import matrix_type_print
 
+    console.print(var_table)
+    console.print("\n[bold green]Diagnostics complete[/bold green]\n")
+
     matrix_type_print("  ALL SYSTEMS GO.  ", color="1;92m", delay=0.05)
     console.print()
