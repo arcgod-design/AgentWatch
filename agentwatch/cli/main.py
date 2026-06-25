@@ -1939,7 +1939,9 @@ def compliance_export_local(
 
     with open(output, "w", encoding="utf-8", newline="") as f:
         f.write(csv_content)
-    console.print(f"[green]{output} created successfully ({loaded} entries exported)[/green]")
+    # Count actual exported rows (subtract 1 for header)
+    exported = max(0, csv_content.count("\n") - 1)
+    console.print(f"[green]{output} created successfully ({exported} entries exported)[/green]")
 
 
 # ─────────────────────────────────────────────

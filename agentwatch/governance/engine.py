@@ -211,7 +211,7 @@ class GovernanceEngine:
                         )
                         self._audit_log.append(entry)
                         count += 1
-                    except (json.JSONDecodeError, KeyError, ValueError) as exc:
+                    except (json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
                         logger.warning("Skipping corrupt audit entry: %s", exc)
         except OSError as exc:
             logger.warning("Failed to read audit log from %s: %s", self._audit_path, exc)

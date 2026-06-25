@@ -92,7 +92,8 @@ class ComplianceReporter:
         )
 
     def generate_csv(self, *, include_allowed: bool = False) -> str:
-        audit_log = self._governance.get_audit_log(limit=10_000)
+        total = len(self._governance._audit_log)
+        audit_log = self._governance.get_audit_log(limit=total)
         if not include_allowed:
             audit_log = [entry for entry in audit_log if not entry.allowed]
 
