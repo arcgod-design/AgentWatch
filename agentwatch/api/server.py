@@ -331,7 +331,6 @@ def _require_api_key(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or revoked API key.",
             )
-        # Store tenant_id in request state (accessed via request.state.tenant_id)
         return
 
     # Legacy mode
@@ -352,13 +351,14 @@ def _require_api_key(
 def _require_tenant_context(
     request: Request,
     x_api_key: str | None = Header(default=None, alias="X-Api-Key"),
-) -> str:
+) -> str | None:
     """FastAPI dependency that resolves tenant_id from the API key.
 
-    Returns the tenant_id for use in downstream handlers.
+    Returns the tenant_id for use in downstream handlers, or None in legacy mode
+    so downstream handlers preserve unscoped NULL tenant behavior.
     """
     if not _CLOUD_MODE:
-        return "default"
+        return None
     if not x_api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -372,6 +372,39 @@ def _require_tenant_context(
             detail="Invalid or revoked API key.",
         )
     return api_key.tenant_id
+
+
+def _require_tenant_ownership(
+    request: Request,
+    path_tenant_id: str,
+    x_api_key: str | None = Header(default=None, alias="X-Api-Key"),
+) -> str:
+    """FastAPI dependency that verifies the caller owns the tenant resource.
+
+    Raises 403 if the API key's tenant doesn't match the path tenant_id.
+    Used for tenant management endpoints (API keys, usage, etc.).
+    """
+    if not _CLOUD_MODE:
+        # In legacy mode, allow access without tenant isolation
+        return path_tenant_id
+    if not x_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing API key.",
+        )
+    store = get_tenant_store()
+    api_key = store.validate_api_key(x_api_key)
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked API key.",
+        )
+    if api_key.tenant_id != path_tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: API key does not belong to this tenant.",
+        )
+    return path_tenant_id
 
 
 class SessionListResponse(BaseModel):
@@ -1480,7 +1513,7 @@ async def get_tenant(
 async def create_api_key(
     tenant_id: str,
     name: str = Query(""),
-    _auth: None = Depends(_require_api_key),
+    _tenant: str = Depends(_require_tenant_ownership),
 ) -> dict[str, Any]:
     store = get_tenant_store()
     tenant = store.get_tenant(tenant_id)
@@ -1497,7 +1530,7 @@ async def create_api_key(
 @app.get("/api/v1/tenants/{tenant_id}/api-keys")
 async def list_api_keys(
     tenant_id: str,
-    _auth: None = Depends(_require_api_key),
+    _tenant: str = Depends(_require_tenant_ownership),
 ) -> dict[str, Any]:
     store = get_tenant_store()
     keys = store.list_api_keys(tenant_id)
@@ -1508,7 +1541,7 @@ async def list_api_keys(
 async def revoke_api_key(
     tenant_id: str,
     key_id: str,
-    _auth: None = Depends(_require_api_key),
+    _tenant: str = Depends(_require_tenant_ownership),
 ) -> dict[str, Any]:
     store = get_tenant_store()
     ok = store.revoke_api_key(key_id)
@@ -1521,7 +1554,7 @@ async def revoke_api_key(
 async def get_usage(
     tenant_id: str,
     period: str | None = Query(None),
-    _auth: None = Depends(_require_api_key),
+    _tenant: str = Depends(_require_tenant_ownership),
 ) -> dict[str, Any]:
     store = get_tenant_store()
     usage = store.get_usage(tenant_id, period=period)

@@ -6,6 +6,7 @@ Provides batched, rate-limited event ingestion with per-tenant isolation.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from collections import defaultdict
@@ -50,6 +51,9 @@ class RateLimiter:
                 "rate": rate_limit,
             }
             return True
+
+        # Always update rate from current plan to handle plan changes
+        bucket["rate"] = rate_limit
 
         # Refill tokens
         elapsed = now - bucket["last_refill"]
@@ -162,12 +166,35 @@ class TenantIngestionPipeline:
         return results
 
     async def _flush_tenant(self, tenant_id: str) -> int:
-        """Flush a single tenant's batch."""
+        """Flush a single tenant's batch.
+
+        Events are popped from the batch BEFORE delivery so that a handler
+        crash does not cause an infinite retry loop.  However, usage is only
+        recorded AFTER handlers succeed, avoiding phantom billing when delivery
+        fails.
+        """
         batch = self._batches.pop(tenant_id, [])
         if not batch:
             return 0
 
-        # Record usage
+        # Dispatch to handlers first — only record usage on success
+        delivered = False
+        for handler in self._handlers:
+            try:
+                result = handler(tenant_id, batch)
+                if inspect.isawaitable(result):
+                    await result
+                delivered = True
+            except Exception:
+                logger.exception("Handler error flushing batch for tenant %s", tenant_id)
+
+        if not delivered:
+            # Re-queue events if all handlers failed
+            self._batches[tenant_id] = batch + self._batches.get(tenant_id, [])
+            logger.warning("Re-queued %d events for tenant %s (handlers failed)", len(batch), tenant_id)
+            return 0
+
+        # Record usage only after successful delivery
         total_tokens = sum(e.token_usage.total_tokens for e in batch if e.token_usage)
         total_cost = sum(e.token_usage.estimated_cost_usd or 0.0 for e in batch if e.token_usage)
         self._tenant_store.record_usage(
@@ -176,16 +203,6 @@ class TenantIngestionPipeline:
             usd_cost=total_cost,
             events=len(batch),
         )
-
-        # Dispatch to handlers
-        for handler in self._handlers:
-            try:
-                if asyncio.iscoroutinefunction(handler):
-                    await handler(tenant_id, batch)
-                else:
-                    handler(tenant_id, batch)
-            except Exception:
-                logger.exception("Handler error flushing batch for tenant %s", tenant_id)
 
         logger.debug("Flushed %d events for tenant %s", len(batch), tenant_id)
         return len(batch)

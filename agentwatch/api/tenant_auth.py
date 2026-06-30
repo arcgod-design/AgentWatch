@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from agentwatch.models.tenant import (
+    PLAN_DEFAULTS,
     ApiKey,
     Tenant,
     TenantConfig,
@@ -31,7 +32,9 @@ class TenantStore:
     def __init__(self) -> None:
         self._tenants: dict[str, Tenant] = {}
         self._api_keys: dict[str, ApiKey] = {}  # key_id -> ApiKey
+        self._key_prefix_index: dict[str, str] = {}  # key_prefix -> key_id
         self._usage: dict[str, UsageRecord] = {}  # "tenant_id:YYYY-MM" -> UsageRecord
+        self._daily_events: dict[str, int] = {}  # "tenant_id:YYYY-MM-DD" -> count
 
     # ── Tenant management ──────────────────────────────────────────
 
@@ -42,11 +45,7 @@ class TenantStore:
         metadata: dict[str, Any] | None = None,
     ) -> Tenant:
         tenant_id = str(uuid.uuid4())
-        config = (
-            TenantConfig(**{k: v for k, v in TenantPlan[plan.value.upper()].value.__dict__.items()})
-            if plan.value.upper() in TenantPlan.__members__
-            else TenantConfig()
-        )
+        config = PLAN_DEFAULTS.get(plan, TenantConfig())
 
         tenant = Tenant(
             tenant_id=tenant_id,
@@ -100,10 +99,12 @@ class TenantStore:
         """Create an API key. Returns (ApiKey, raw_key_string).
 
         The raw key is only returned at creation time.
+        The key prefix (first 20 chars) is stored for O(1) lookup.
         """
         raw_key = generate_api_key(tenant_id)
         key_hash = _hash_api_key(raw_key)
         key_id = str(uuid.uuid4())
+        key_prefix = raw_key[:20]
 
         api_key = ApiKey(
             key_id=key_id,
@@ -113,25 +114,29 @@ class TenantStore:
             scopes=scopes or ["*"],
         )
         self._api_keys[key_id] = api_key
+        self._key_prefix_index[key_prefix] = key_id
         logger.info("Created API key '%s' for tenant %s", name, tenant_id)
         return api_key, raw_key
 
     def validate_api_key(self, raw_key: str) -> ApiKey | None:
         """Validate an API key and return the ApiKey if valid.
 
-        Uses PBKDF2-HMAC-SHA256 verification (constant-time) against stored
-        salt:hash values — raw keys are never persisted or logged.
+        Uses key prefix for O(1) lookup, then PBKDF2-HMAC-SHA256
+        constant-time verification against the stored salt:hash.
         """
-        # Iterate keys and verify using PBKDF2 (constant-time comparison)
-        for api_key in self._api_keys.values():
-            if api_key.revoked:
-                continue
-            if api_key.expires_at and datetime.now(UTC) > api_key.expires_at:
-                continue
-            if _verify_api_key(raw_key, api_key.key_hash):
-                api_key.last_used_at = datetime.now(UTC)
-                return api_key
-        return None
+        key_prefix = raw_key[:20]
+        key_id = self._key_prefix_index.get(key_prefix)
+        if not key_id:
+            return None
+        api_key = self._api_keys.get(key_id)
+        if not api_key or api_key.revoked:
+            return None
+        if api_key.expires_at and datetime.now(UTC) > api_key.expires_at:
+            return None
+        if not _verify_api_key(raw_key, api_key.key_hash):
+            return None
+        api_key.last_used_at = datetime.now(UTC)
+        return api_key
 
     def revoke_api_key(self, key_id: str) -> bool:
         api_key = self._api_keys.get(key_id)
@@ -154,7 +159,8 @@ class TenantStore:
         events: int = 0,
     ) -> UsageRecord:
         """Record token/cost usage for a tenant in the current period."""
-        period = datetime.now(UTC).strftime("%Y-%m")
+        now = datetime.now(UTC)
+        period = now.strftime("%Y-%m")
         usage_key = f"{tenant_id}:{period}"
 
         if usage_key not in self._usage:
@@ -168,7 +174,12 @@ class TenantStore:
         usage.usd_cost += usd_cost
         usage.events_count += events
         usage.requests_count += 1
-        usage.updated_at = datetime.now(UTC)
+        usage.updated_at = now
+
+        # Track daily events for quota enforcement
+        day_key = f"{tenant_id}:{now.strftime('%Y-%m-%d')}"
+        self._daily_events[day_key] = self._daily_events.get(day_key, 0) + events
+
         return usage
 
     def get_usage(self, tenant_id: str, period: str | None = None) -> UsageRecord | None:
@@ -190,6 +201,13 @@ class TenantStore:
                 return False, "Monthly token limit exceeded"
             if usage.usd_cost >= tenant.config.max_usd_per_month:
                 return False, "Monthly cost limit exceeded"
+
+        # Check daily events quota
+        day_key = f"{tenant_id}:{datetime.now(UTC).strftime('%Y-%m-%d')}"
+        daily_events = self._daily_events.get(day_key, 0)
+        if daily_events >= tenant.config.max_events_per_day:
+            return False, "Daily event limit exceeded"
+
         return True, "OK"
 
 
