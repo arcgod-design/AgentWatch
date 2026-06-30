@@ -408,9 +408,11 @@ class TenantRepository:
         if self._tenant_id:
             from sqlalchemy import select
 
-            q = select(SessionRecord).where(
-                SessionRecord.tenant_id == self._tenant_id
-            ).order_by(SessionRecord.started_at.desc())
+            q = (
+                select(SessionRecord)
+                .where(SessionRecord.tenant_id == self._tenant_id)
+                .order_by(SessionRecord.started_at.desc())
+            )
             if framework:
                 q = q.where(SessionRecord.framework == framework)
             if status:
@@ -456,9 +458,7 @@ class TenantRepository:
             return 0
         # Verify tenant ownership before pruning
         if self._tenant_id:
-            owned_ids = await self.get_sessions_older_than(
-                datetime.max.replace(tzinfo=UTC)
-            )
+            owned_ids = await self.get_sessions_older_than(datetime.max.replace(tzinfo=UTC))
             # Intersect requested ids with owned ids
             owned_set = set(owned_ids)
             session_ids = [sid for sid in session_ids if sid in owned_set]

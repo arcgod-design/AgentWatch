@@ -191,7 +191,9 @@ class TenantIngestionPipeline:
         if not delivered:
             # Re-queue events if all handlers failed
             self._batches[tenant_id] = batch + self._batches.get(tenant_id, [])
-            logger.warning("Re-queued %d events for tenant %s (handlers failed)", len(batch), tenant_id)
+            logger.warning(
+                "Re-queued %d events for tenant %s (handlers failed)", len(batch), tenant_id
+            )
             return 0
 
         # Record usage only after successful delivery
