@@ -42,6 +42,11 @@ class SilentFailureDetector:
 
     # ── training ───────────────────────────────────────────────────────────
 
+    @property
+    def baseline(self) -> SilentFailureDetector:
+        """Backward-compatible accessor — returns self (fields are now inline)."""
+        return self
+
     def train(
         self,
         sessions: list[tuple[AgentSession, list[AgentEvent]]],
