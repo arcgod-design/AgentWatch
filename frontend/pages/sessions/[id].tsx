@@ -2,24 +2,27 @@ import { useState } from 'react'
 import { useRouter } from 'next/router'
 import { AlertTriangle, ArrowLeft, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react'
 
-
 import { FailureAnalysis, ReplayStep } from '../../lib/api'
 import { Modal } from '../../components/Modal'
 import { useSession, useSessionReplay, useSessionConfidence, useSessionCheckpoints, useRollback } from '../../lib/api/hooks/useSessions'
 
-function safeFormat(ts: string | null | undefined, fmt: string): string {
-  if (!ts) return '—'
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "short",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+})
+
+function safeFormat(ts: string | null | undefined): string {
+  if (!ts) return "—"
+
   try {
-    const date = new Date(ts)
-    if (fmt === 'HH:mm:ss.SSS') {
-      const time = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(date)
-      return `${time}.${String(date.getMilliseconds()).padStart(3, '0')}`
-    }
-    if (fmt === 'HH:mm:ss') {
-      return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(date)
-    }
-    return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(date)
-  } catch { return '—' }
+    return dateTimeFormatter.format(new Date(ts))
+  } catch {
+    return "—"
+  }
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -51,7 +54,7 @@ function EventRow({ step }: { step: ReplayStep }) {
         <span className="min-w-0 flex-1 truncate text-zinc-200">{step.event.event_type}</span>
         <span className="font-mono text-xs text-zinc-500">{step.event.tool_call?.tool_name ?? '—'}</span>
         <span>{statusBadge(step.event.status)}</span>
-        <span className="text-xs text-zinc-500">{safeFormat(step.event.timestamp, 'HH:mm:ss.SSS')}</span>
+        <span className="text-xs text-zinc-500">{safeFormat(step.event.timestamp)}</span>
         {expanded ? <ChevronUp size={14} className="text-zinc-500" /> : <ChevronDown size={14} className="text-zinc-500" />}
       </button>
       {expanded ? (

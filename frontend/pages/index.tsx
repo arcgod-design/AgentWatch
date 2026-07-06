@@ -4,8 +4,6 @@ import { useRouter } from 'next/router'
 import { useQueryClient } from '@tanstack/react-query'
 import { Activity, AlertTriangle, ChevronRight, DollarSign, Loader2, RefreshCw, Shield, Zap } from 'lucide-react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-
-
 import { AgentEvent, AgentSession, DashboardSummary } from '../lib/api'
 import { useLiveEventSocket } from '../lib/useLiveEventSocket'
 import type { LiveFeedStatus } from '../lib/wsReconnect'
@@ -24,32 +22,41 @@ const STATUS_COLORS: Record<string, string> = {
 function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(' ')
 }
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+})
 
-function safeFormat(ts: string | null | undefined, fmt: string): string {
-  if (!ts) return '—'
+function safeFormat(ts: string | null | undefined): string {
+  if (!ts) return "—"
+
   try {
-    const date = new Date(ts)
-    if (fmt === 'HH:mm:ss') {
-      return new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(date)
-    }
-    return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' }).format(date)
-  } catch { return '—' }
+    return dateTimeFormatter.format(new Date(ts))
+  } catch {
+    return "—"
+  }
 }
 
 function safeDistanceToNow(ts: string | null | undefined): string {
-  if (!ts) return '—'
-  try {
-    const now = Date.now()
-    const then = new Date(ts).getTime()
-    const diffSec = Math.round((now - then) / 1000)
-    if (diffSec < 60) return `${diffSec} seconds ago`
-    const diffMin = Math.round(diffSec / 60)
-    if (diffMin < 60) return `${diffMin} minutes ago`
-    const diffHr = Math.round(diffMin / 60)
-    if (diffHr < 24) return `${diffHr} hours ago`
-    const diffDay = Math.round(diffHr / 24)
-    return `${diffDay} days ago`
-  } catch { return '—' }
+  if (!ts) return "—"
+
+  const date = new Date(ts)
+  const now = new Date()
+
+  const diff = Math.floor((now.getTime() - date.getTime()) / 1000)
+
+  if (diff < 60) return `${diff} seconds ago`
+
+  const minutes = Math.floor(diff / 60)
+  if (minutes < 60) return `${minutes} minutes ago`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} hours ago`
+
+  const days = Math.floor(hours / 24)
+  return `${days} days ago`
 }
 
 function statusBadge(status: string) {
@@ -178,7 +185,7 @@ function LiveEventFeed({
                 <div className="truncate font-medium text-zinc-200">{event.event_type}</div>
                 <div className="truncate font-mono text-zinc-500">{event.tool_call?.raw_command ?? event.tool_call?.tool_name ?? event.agent_id}</div>
               </div>
-              <div className="shrink-0 text-zinc-500">{safeFormat(event.timestamp, 'HH:mm:ss')}</div>
+              <div className="shrink-0 text-zinc-500">{safeFormat(event.timestamp)}</div>
             </div>
           </div>
         ))}
@@ -288,7 +295,7 @@ function SafetyPanel({ blockedEvents, loading }: { blockedEvents: AgentEvent[]; 
             <div key={event.event_id} className="rounded-xl border border-amber-500/10 bg-black/10 p-3 text-xs">
               <div className="flex items-center justify-between gap-3">
                 <div className="font-medium text-zinc-200">{event.tool_call?.tool_name ?? event.event_type}</div>
-                <div className="text-zinc-500">{safeFormat(event.timestamp, 'HH:mm:ss')}</div>
+                <div className="text-zinc-500">{safeFormat(event.timestamp)}</div>
               </div>
               <div className="mt-1 truncate font-mono text-zinc-500">{event.tool_call?.raw_command}</div>
               <div className="mt-2 text-amber-300">{event.safety?.reasons?.[0] ?? 'Blocked by policy'}</div>
