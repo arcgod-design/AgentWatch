@@ -234,15 +234,23 @@ class ReasoningAuditor:
         # detection returned ``False``.
         cut = int(len(events) * split_ratio)
         first, second = events[:cut], events[cut:]
-        first_fp = self._pydantic_fingerprint(fingerprint(first))
-        second_fp = self._pydantic_fingerprint(fingerprint(second))
+        plans_first = sum(1 for e in first if e.event_type == EventType.PLANNER_OUTPUT)
+        plans_second = sum(1 for e in second if e.event_type == EventType.PLANNER_OUTPUT)
+        first_fp = self._pydantic_fingerprint(fingerprint(first), sample_size=plans_first)
+        second_fp = self._pydantic_fingerprint(fingerprint(second), sample_size=plans_second)
         session_id = events[0].session_id if events else ""
         reason: str | None = None
         if not detected:
             if len(events) < 6:
                 reason = "insufficient_events"
-            elif distance == 0.0:
+            elif plans_first == 0 or plans_second == 0:
+                # Genuine insufficient planner signal: one half has no planner
+                # output at all, so distance==0 is meaningless.
                 reason = "insufficient_planner_signal"
+            elif distance == 0.0:
+                # Identical planner fingerprints on both sides ⇒ identical
+                # style, distinct from missing-planner-signal case above.
+                reason = "style_identical"
             else:
                 reason = "below_threshold"
         plans_count = sum(1 for e in events if e.event_type == EventType.PLANNER_OUTPUT)
