@@ -1627,9 +1627,16 @@ async def ingestion_metrics(
 
 # ─── GDPR right-to-erasure (CMP-002) ──────────────────────────────────
 
-_SESSION_ERASURE_SECRET: bytes = os.getenv("AGENTWATCH_ERASURE_SECRET", "").encode() or os.urandom(
-    32
-)
+# AGENTWATCH_ERASURE_SECRET must be configured at process startup. Receipts need
+# to remain verifiable across restarts and deployments, so we fail fast rather
+# than substituting a random / zero fallback.
+_SESSION_ERASURE_SECRET: bytes = os.getenv("AGENTWATCH_ERASURE_SECRET", "").encode()
+if not _SESSION_ERASURE_SECRET:
+    raise RuntimeError(
+        "AGENTWATCH_ERASURE_SECRET environment variable must be set to a "
+        "non-empty value before the API server can accept GDPR erasure requests. "
+        "Receipt signatures cannot be deterministic without it."
+    )
 
 
 class _SessionErasureTarget:
@@ -1693,10 +1700,26 @@ async def gdpr_erase(
     session, event, and memory data for the given identifier.
 
     The response is an HMAC-SHA256 signed erasure receipt suitable for
-    compliance audit trails.
+    compliance audit trails. If any registered target reports an error,
+    the endpoint responds with HTTP 207 (Multi-Status) so callers can
+    distinguish a clean no-op from a partially-failed erasure.
     """
     service = await _build_erasure_service()
     receipt = await service.erase(request)
+    if receipt.failure_count:
+        raise HTTPException(
+            status_code=207,
+            detail={
+                "message": (
+                    f"Erasure completed with {receipt.failure_count} "
+                    f"target failure(s); signed receipt attached."
+                ),
+                "failed_targets": receipt.failed_targets,
+                "items_erased": receipt.items_erased,
+                "audit_signature": receipt.audit_signature,
+            },
+            headers={"Content-Type": "application/json"},
+        )
     return receipt
 
 

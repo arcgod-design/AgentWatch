@@ -1,10 +1,10 @@
-"""
-CMP-001 — GDPR Data Handling.
+﻿"""
+CMP-001 â€” GDPR Data Handling.
 
 - PII detection across all traces
 - Auto-redaction option
 - Right-to-erasure endpoint (in-memory + persisted, HMAC-SHA256 receipts)
-- Cross-session memory erasure (CMP-002) — see :class:`CrossSessionErasureService`
+- Cross-session memory erasure (CMP-002) â€” see :class:`CrossSessionErasureService`
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from typing import Any, Protocol, runtime_checkable
 SIGNING_KEY_ENV = "AGENTWATCH_GDPR_SIGNING_KEY"
 SIGNATURE_PREFIX = "hmac-sha256:"
 
-# Pattern → label
+# Pattern â†’ label
 _PII_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b[\w._%+-]+@[\w.-]+\.[A-Za-z]{2,}\b"), "email"),
     (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "ssn"),

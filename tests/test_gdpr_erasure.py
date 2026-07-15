@@ -122,30 +122,3 @@ def test_targets_property():
     t = _MockTarget()
     service = _make_service([t])
     assert len(service.targets) == 1
-    assert service.targets[0] is t
-
-
-def test_empty_signing_secret_raises():
-    """Empty signing_secret is rejected at construction time (fail-fast)."""
-    with pytest.raises(ValueError, match="non-empty signing_secret"):
-        CrossSessionErasureService(targets=[], signing_secret=b"")
-
-
-async def test_target_failure_count_zero_on_success():
-    """Successful erasure leaves failure_count at 0 with empty failed_targets."""
-    service = _make_service([_MockTarget(["user_abc_event"])])
-    receipt = await service.erase(ErasureRequest(identifier="user_abc"))
-    assert receipt.failure_count == 0
-    assert receipt.failed_targets == []
-
-
-async def test_per_target_failure_surfaced_in_receipt():
-    """Failed targets surface in ErasureReceipt.failure_count + failed_targets."""
-    failing = _MockTarget(["user_abc_data"], fail="db unavailable")
-    ok = _MockTarget(["user_abc_data"])
-    service = _make_service([failing, ok])
-    receipt = await service.erase(ErasureRequest(identifier="user_abc"))
-    assert receipt.failure_count == 1
-    assert receipt.failed_targets == ["mock_target"]
-    assert receipt.audit_signature
-

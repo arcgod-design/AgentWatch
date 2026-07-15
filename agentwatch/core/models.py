@@ -7,10 +7,7 @@ for PostgreSQL persistence.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from agentwatch.governance.audit_log import AuditRecord
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -359,7 +356,7 @@ class Repository:
         d = delete(SessionRecord).where(SessionRecord.session_id.in_(session_ids))
         result = await self._session.execute(d)
         await self._session.flush()
-        return deleted
+        return result.rowcount or 0
 
     async def erase_user_data(
         self, user_id: str, *, scope: str = "all", tenant_id: str | None = None
