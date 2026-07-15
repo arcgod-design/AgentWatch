@@ -92,7 +92,11 @@ def test_fingerprint_session_no_swap_detected_consistent_plans():
     assert report.fingerprint.sample_size == 8
     assert report.swap_alert.detected is False
     assert report.swap_alert.distance == 0.0
-    assert report.swap_alert.reason in {"insufficient_planner_signal", "below_threshold"}
+    assert report.swap_alert.reason in {
+        "insufficient_planner_signal",
+        "below_threshold",
+        "style_identical",
+    }
 
 
 def test_fingerprint_session_detects_style_swap():
@@ -115,6 +119,9 @@ def test_fingerprint_session_detects_style_swap():
     assert report.swap_alert.distance > 0.3
     assert report.swap_alert.threshold == 0.3
     assert report.swap_alert.reason is None  # detected -> no reason blob
+    # Each half's sample_size is now populated from the half's planner count.
+    assert report.swap_alert.first_half.sample_size == 4
+    assert report.swap_alert.second_half.sample_size == 4
 
 
 def test_fingerprint_session_short_circuit_records_reason():
