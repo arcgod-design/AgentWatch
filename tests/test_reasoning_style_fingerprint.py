@@ -148,13 +148,16 @@ def test_fingerprint_report_to_dict_roundtrip():
     [
         ([], "insufficient_events"),
         ([_plan("x", 0)], "insufficient_events"),
-        ([_plan("plan", i) for i in range(5)], None),  # below threshold in even dist
+        ([_plan("plan", i) for i in range(5)], "insufficient_events"),
+        (
+            [_plan("single-plan-planner-alone", i) for i in range(6)],
+            "style_identical",
+        ),
     ],
 )
 def test_fingerprint_session_handles_edge_cases(events, expected_reason):
     auditor = ReasoningAuditor()
     report = auditor.fingerprint_session(events)
-    if expected_reason is None:
-        assert report.swap_alert.detected is False
-    else:
-        assert report.swap_alert.reason == expected_reason
+    assert report.swap_alert.reason == expected_reason
+    # Detection is always False for the non-detection parameterised rows.
+    assert report.swap_alert.detected is False
