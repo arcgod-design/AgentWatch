@@ -1628,15 +1628,32 @@ async def ingestion_metrics(
 # ─── GDPR right-to-erasure (CMP-002) ──────────────────────────────────
 
 # AGENTWATCH_ERASURE_SECRET must be configured at process startup. Receipts need
-# to remain verifiable across restarts and deployments, so we fail fast rather
-# than substituting a random / zero fallback.
-_SESSION_ERASURE_SECRET: bytes = os.getenv("AGENTWATCH_ERASURE_SECRET", "").encode()
-if not _SESSION_ERASURE_SECRET:
-    raise RuntimeError(
-        "AGENTWATCH_ERASURE_SECRET environment variable must be set to a "
-        "non-empty value before the API server can accept GDPR erasure requests. "
-        "Receipt signatures cannot be deterministic without it."
-    )
+# to remain verifiable across restarts and deployments, so we resolve the
+# secret lazily on first use (rather than at module import) so that import-time
+# test harnesses that don't exercise the gdpr endpoint can still run.
+_SESSION_ERASURE_SECRET: bytes | None = None
+_ERASURE_SECRET_RESOLVED: bool = False
+
+
+def _get_erasure_secret() -> bytes:
+    """Resolve the HMAC signing secret for erasure receipts.
+
+    Reads ``AGENTWATCH_ERASURE_SECRET`` from the environment on first access
+    and caches the result for the process lifetime. Raises ``RuntimeError``
+    if the secret is unset or empty so misconfiguration surfaces at the
+    actual GDPR-endpoint call rather than at server import time.
+    """
+    global _SESSION_ERASURE_SECRET, _ERASURE_SECRET_RESOLVED
+    if not _ERASURE_SECRET_RESOLVED:
+        _SESSION_ERASURE_SECRET = os.getenv("AGENTWATCH_ERASURE_SECRET", "").encode()
+        _ERASURE_SECRET_RESOLVED = True
+    if not _SESSION_ERASURE_SECRET:
+        raise RuntimeError(
+            "AGENTWATCH_ERASURE_SECRET environment variable must be set to a "
+            "non-empty value before the API server can accept GDPR erasure requests. "
+            "Receipt signatures cannot be deterministic without it."
+        )
+    return _SESSION_ERASURE_SECRET
 
 
 class _SessionErasureTarget:
@@ -1801,7 +1818,7 @@ async def _build_erasure_service(
         )
     return CrossSessionErasureService(
         targets=targets,
-        signing_secret=_SESSION_ERASURE_SECRET,
+        signing_secret=_get_erasure_secret(),
     )
 
 
