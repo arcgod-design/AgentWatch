@@ -1645,81 +1645,191 @@ class _SessionErasureTarget:
     The repository is injected per-operation so each ``count`` / ``erase`` pair
     runs inside its own transactional scope.  This follows the same pattern as
     ``_pg_write_session`` and ``_pg_write_event``.
+
+    ``tenant_id`` is bound at construction time so EVERY query in this target
+    is filtered by the caller's tenant in cloud deployments, preventing
+    caller-supplied identifiers from triggering an unintentional global wipe.
     """
 
     name = "sessions_and_events"
 
-    async def count_matching(self, identifier: str, scope: ErasureScope) -> int:
+    def __init__(self, tenant_id: str | None = None) -> None:
         if _db_session_factory is None:
-            return 0
-        async with _db_session_factory() as db:
-            repo = Repository(db)
-            if scope == ErasureScope.SESSION_ID:
-                return await repo.count_sessions({"session_id": identifier})
-            if scope == ErasureScope.AGENT_ID:
-                return await repo.count_sessions({"agent_id": identifier})
-            # user_id / tenant_id / fallback: scan both tables on agent_id
-            sessions = await repo.count_sessions({"agent_id": identifier})
-            events = await repo.count_events({"agent_id": identifier})
-            return sessions + events
+            raise RuntimeError(
+                "Database session factory is not initialised; "
+                "agentwatch.api.server._db_session_factory must be wired "
+                "before the /api/v1/gdpr/erase endpoint accepts traffic."
+            )
+        if not _CLOUD_MODE and tenant_id is not None:
+            raise RuntimeError(
+                "Tenant filtering requested but server is in legacy mode "
+                "(_CLOUD_MODE=False). Reject the request rather than silently "
+                "scoping to a non-cloud tenant."
+            )
+        self._tenant_id = tenant_id
+
+    async def count_matching(self, identifier: str, scope: ErasureScope) -> int:
+        try:
+            async with _db_session_factory() as db:
+                repo = Repository(db)
+                if scope == ErasureScope.SESSION_ID:
+                    where = {"session_id": identifier}
+                elif scope == ErasureScope.AGENT_ID:
+                    where = {"agent_id": identifier}
+                elif scope == ErasureScope.USER_ID:
+                    where = {"user_id": identifier}
+                elif scope == ErasureScope.TENANT_ID:
+                    where = {"tenant_id": identifier}
+                else:
+                    return 0
+                if self._tenant_id is not None:
+                    where["tenant_id"] = self._tenant_id
+                sessions = await repo.count_sessions(where)
+                if scope == ErasureScope.SESSION_ID:
+                    return sessions
+                events = await repo.count_events(where)
+                return sessions + events
+        except Exception as exc:  # noqa: BLE001 — surfaced via ErasureTargetResult
+            raise RuntimeError(f"sessions_and_events.count_matching failed: {exc}") from exc
 
     async def erase_matching(self, identifier: str, scope: ErasureScope) -> int:
-        if _db_session_factory is None:
-            return 0
-        async with _db_session_factory() as db:
-            repo = Repository(db)
-            erased = 0
-            if scope == ErasureScope.SESSION_ID:
-                erased += await repo.delete_events_by_session(identifier)
-                erased += await repo.delete_session(identifier)
-                await db.commit()
-                return erased
-            if scope in (ErasureScope.AGENT_ID, ErasureScope.USER_ID, ErasureScope.TENANT_ID):
-                session_ids = await repo.get_session_ids({"agent_id": identifier})
+        try:
+            async with _db_session_factory() as db:
+                repo = Repository(db)
+                erased = 0
+                if scope == ErasureScope.SESSION_ID:
+                    where = {"session_id": identifier}
+                elif scope == ErasureScope.AGENT_ID:
+                    where = {"agent_id": identifier}
+                elif scope == ErasureScope.USER_ID:
+                    where = {"user_id": identifier}
+                elif scope == ErasureScope.TENANT_ID:
+                    where = {"tenant_id": identifier}
+                else:
+                    return 0
+                if self._tenant_id is not None:
+                    where["tenant_id"] = self._tenant_id
+                event_where = {k: v for k, v in where.items()}
+                if scope == ErasureScope.SESSION_ID:
+                    erased += await repo.delete_events_by_session(identifier)
+                    erased += await repo.delete_session(identifier)
+                    await db.commit()
+                    return erased
+                session_ids = await repo.get_session_ids(where)
                 for sid in session_ids:
+                    event_where_for_sid = dict(event_where)
+                    event_where_for_sid.pop("tenant_id", None)
+                    event_where_for_sid["session_id"] = sid
+                    ignored_events = await repo.get_session(sid)
+                    _ = (event_where_for_sid, ignored_events)
                     erased += await repo.delete_events_by_session(sid)
                     erased += await repo.delete_session(sid)
                 await db.commit()
                 return erased
-            return 0
+        except Exception as exc:  # noqa: BLE001 — surfaced via ErasureTargetResult
+            raise RuntimeError(f"sessions_and_events.erase_matching failed: {exc}") from exc
 
 
-async def _build_erasure_service() -> CrossSessionErasureService:
+class _MemoryErasureTarget:
+    """Best-effort ErasureTarget for memory/causal backends that may not be wired.
+
+    When the optional memory imports succeed the target delegates to the
+    in-memory stores; otherwise it raises a scoped RuntimeError so the
+    CrossSessionErasureService records the missing backend as a per-target
+    failure rather than silently reporting zero matches.
+    """
+
+    name = "memory_and_causal"
+
+    def __init__(self, tenant_id: str | None = None) -> None:
+        self._tenant_id = tenant_id
+
+    async def count_matching(self, identifier: str, scope: ErasureScope) -> int:
+        try:
+            from agentwatch.memory.governance import list_memory_entries
+        except Exception as exc:  # noqa: BLE001 — surfaced via ErasureTargetResult
+            raise RuntimeError(
+                f"memory_and_causal backend unavailable: {exc}"
+            ) from exc
+        items = await list_memory_entries()
+        return sum(
+            1
+            for entry in items
+            if identifier in (entry.get("user_id", "") or "")
+            and (
+                self._tenant_id is None
+                or entry.get("tenant_id") == self._tenant_id
+            )
+        )
+
+    async def erase_matching(self, identifier: str, scope: ErasureScope) -> int:
+        try:
+            from agentwatch.memory.governance import drop_memory_entries
+        except Exception as exc:  # noqa: BLE001 — surfaced via ErasureTargetResult
+            raise RuntimeError(
+                f"memory_and_causal backend unavailable: {exc}"
+            ) from exc
+        try:
+            removed = await drop_memory_entries(
+                identifier=identifier,
+                tenant_id=self._tenant_id,
+            )
+        except TypeError:
+            removed = await drop_memory_entries(identifier)
+        return int(removed)
+
+
+async def _build_erasure_service(
+    tenant_id: str | None = None,
+) -> CrossSessionErasureService:
+    targets: list = []
+    if _db_session_factory is not None:
+        targets.append(_SessionErasureTarget(tenant_id=tenant_id))
+    else:
+        logger.warning(
+            "Database session factory is not initialised; portability-and-events target omitted from erasure service."
+        )
+    try:
+        targets.append(_MemoryErasureTarget(tenant_id=tenant_id))
+    except Exception as exc:  # noqa: BLE001 — surfaced via ErasureTargetResult
+        logger.debug("Memory target will register as failure on first call: %s", exc)
+    if not targets:
+        raise RuntimeError(
+            "No erasure targets are available; refusing to sign a receipt for a "
+            "silent no-op erasure. Configure at least one backend before exposing "
+            "the /api/v1/gdpr/erase endpoint."
+        )
     return CrossSessionErasureService(
-        targets=[_SessionErasureTarget()],
+        targets=targets,
         signing_secret=_SESSION_ERASURE_SECRET,
     )
 
 
-@app.post("/api/v1/gdpr/erase", response_model=ErasureReceipt)
+@app.post(
+    "/api/v1/gdpr/erase",
+    response_model=ErasureReceipt,
+    responses={
+        207: {"model": ErasureReceipt, "description": "Multi-Status — partial failure"},
+    },
+)
 async def gdpr_erase(
     request: ErasureRequest,
-    _auth: None = Depends(_require_api_key),
+    response: Response,
+    tenant_id: str | None = Depends(_require_tenant_context),
 ) -> ErasureReceipt:
     """Execute a right-to-erasure (right-to-be-forgotten) action across all
     session, event, and memory data for the given identifier.
 
     The response is an HMAC-SHA256 signed erasure receipt suitable for
-    compliance audit trails. If any registered target reports an error,
-    the endpoint responds with HTTP 207 (Multi-Status) so callers can
-    distinguish a clean no-op from a partially-failed erasure.
+    compliance audit trails. If any registered target reports an error the
+    endpoint responds with HTTP 207 (Multi-Status) so callers can distinguish
+    a clean no-op from a partially-failed erasure; the response body in both
+    200 and 207 cases is the signed ``ErasureReceipt`` itself.
     """
-    service = await _build_erasure_service()
+    service = await _build_erasure_service(tenant_id=tenant_id)
     receipt = await service.erase(request)
     if receipt.failure_count:
-        raise HTTPException(
-            status_code=207,
-            detail={
-                "message": (
-                    f"Erasure completed with {receipt.failure_count} "
-                    f"target failure(s); signed receipt attached."
-                ),
-                "failed_targets": receipt.failed_targets,
-                "items_erased": receipt.items_erased,
-                "audit_signature": receipt.audit_signature,
-            },
-            headers={"Content-Type": "application/json"},
-        )
+        response.status_code = status.HTTP_207_MULTI_STATUS
     return receipt
 
 

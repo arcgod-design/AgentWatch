@@ -104,12 +104,24 @@ class ErasureStore(Protocol):
 
 @dataclass
 class ErasureRequest:
-    """Structured right-to-erasure request suitable for API input."""
+    """Structured right-to-erasure request suitable for API input.
+
+    ``identifier`` must be a non-empty, non-whitespace string. Empty or
+    whitespace-only values are rejected at construction time so a confused
+    API caller cannot trigger a global erase with no scope.
+    """
 
     identifier: str
     scope: ErasureScope = ErasureScope.USER_ID
     reason: str = "right_to_erasure"
     initiated_by: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.identifier, str) or not self.identifier.strip():
+            raise ValueError(
+                "ErasureRequest.identifier must be a non-empty, non-whitespace string."
+            )
+        self.identifier = self.identifier.strip()
 
 
 @dataclass
@@ -132,8 +144,16 @@ def _sign_receipt(
     The signature covers the request identity, the per-target erased counts,
     and errors so the receipt cannot be forged or replayed across runs.
     """
+    return _sign_erasure_payload(_erasure_payload(request, results), secret)
+
+
+def _erasure_payload(
+    request: ErasureRequest,
+    results: list[ErasureTargetResult],
+) -> bytes:
+    """Stable wire-format payload signed for an erasure receipt."""
     total_erased = sum(r.erased_items for r in results)
-    payload = json.dumps(
+    return json.dumps(
         {
             "identifier": request.identifier,
             "scope": request.scope.value,
@@ -142,8 +162,40 @@ def _sign_receipt(
         },
         sort_keys=True,
         separators=(",", ":"),
-    )
-    return hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
+    ).encode("utf-8")
+
+
+def _sign_erasure_payload(payload: bytes, secret: bytes) -> str:
+    return hmac.new(secret, payload, hashlib.sha256).hexdigest()
+
+
+def verify_erasure_signature(
+    receipt: ErasureReceipt,
+    request: ErasureRequest,
+    results: list[ErasureTargetResult],
+    *,
+    key: str | bytes,
+) -> bool:
+    """Verify the HMAC-SHA256 signature on an ErasureReceipt.
+
+    Recomputes the same per-target payload as :func:`_sign_receipt` and
+    compares against ``receipt.audit_signature`` using a constant-time
+    digest check. Use this in tests and compliance tooling that needs to
+    detect tampered receipts without rebuilding the receipt payload by hand.
+
+    Args:
+        receipt: The signed ErasureReceipt returned by the service.
+        request: The same ErasureRequest that was originally submitted.
+        results: The same list of per-target ErasureTargetResult entries
+            produced by the service for the request.
+        key: The signing secret (string or bytes) used at receipt issuance.
+
+    Returns:
+        ``True`` iff the receipt signature matches the recomputed payload.
+    """
+    resolved = key.encode("utf-8") if isinstance(key, str) else key
+    expected = _sign_erasure_payload(_erasure_payload(request, results), resolved)
+    return hmac.compare_digest(expected, receipt.audit_signature)
 
 
 class ErasureTarget(Protocol):
@@ -277,11 +329,18 @@ class CrossSessionErasureService:
         self,
         targets: Iterable[ErasureTarget],
         signing_secret: bytes = b"",
+        min_signing_secret_bytes: int = 16,
     ):
         if not signing_secret:
             raise ValueError(
                 "CrossSessionErasureService requires a non-empty signing_secret. "
-                "Random/zero fallback is unsafe - pass a real 32-byte key."
+                "Random/zero fallback is unsafe - pass a real key."
+            )
+        if len(signing_secret) < min_signing_secret_bytes:
+            raise ValueError(
+                f"CrossSessionErasureService signing_secret is too short "
+                f"({len(signing_secret)} bytes); expected at least "
+                f"{min_signing_secret_bytes} bytes so the HMAC key has enough entropy."
             )
         self._targets = list(targets)
         self._secret = signing_secret
@@ -360,4 +419,5 @@ __all__ = [
     "resolve_signing_key",
     "sign_receipt",
     "verify_receipt",
+    "verify_erasure_signature",
 ]
